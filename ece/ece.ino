@@ -24,7 +24,7 @@ const float Kp = 0.8;
 const float Ki = 0.0;
 const float Kd = 10.0;
 
-enum MovementState { LINE_FOLLOWING, TURNING_AROUND };
+enum MovementState { LINE_FOLLOWING_FORWARD, TURNING_AROUND, LINE_FOLLOWING_BACK, FINISHED };
 
 typedef struct {
   float currentForwardSpeed = 0.0;
@@ -33,7 +33,7 @@ typedef struct {
   float previousErrors[NUM_PREVIOUS_ERRORS] = {0.0};
   uint16_t sensorValues[8] = {0};
   int previousSums[NUM_PREVIOUS_SUMS] = {0};
-  MovementState movementState = LINE_FOLLOWING;
+  MovementState movementState = LINE_FOLLOWING_FORWARD;
 } CarState;
 
 CarState state;
@@ -210,21 +210,40 @@ void loop() {
   updateSensors();
 
   switch (state.movementState) {
-    case LINE_FOLLOWING:
+    case LINE_FOLLOWING_FORWARD:
       if (onFinish()) {
 //        Serial.print("yes\n");
         state.movementState = TURNING_AROUND;
         stopMove();
+        resetEncoderCount_left();
+        resetEncoderCount_right();
         return;
       }
 
-  //  printErrorChanges();
       calcTurnSpeedPD();
-  //  printTurnSpeed();
       rampSpeedTo(state.currentForwardSpeed, 0.1, RAMP_SPEED);
       break;
     case TURNING_AROUND:
+      if(getEncoderCount_left() > 350) {
+        state.movementState = LINE_FOLLOWING_BACK;
+        stopMove();
+        return;
+      }
+      rampSpeedTo(state.currentTurnSpeed, 0.2, RAMP_SPEED);
       break;
+    case LINE_FOLLOWING_BACK:
+      if (onFinish()) {
+//        Serial.print("yes\n");
+        state.movementState = FINISHED;
+        stopMove();
+        return;
+      }
+      calcTurnSpeedPD();
+      rampSpeedTo(state.currentForwardSpeed, 0.1, RAMP_SPEED);
+      break;
+    case FINISHED:
+      stopMove();
+      return;
   }
 
   move();
