@@ -3,7 +3,7 @@
 
 #define RAMP_SPEED (0.0005)
 #define NUM_PREVIOUS_ERRORS (3)
-#define NUM_PREVIOUS_SUMS (30)
+#define NUM_PREVIOUS_SUMS (4)
 
 
 const int left_nslp_pin = 31; // nslp HIGH ==> awake & ready for PWM
@@ -20,9 +20,9 @@ int distance = 300;
 uint16_t sensorCalibrationMins[8] = {827, 617, 663, 640, 640, 594, 686, 709};
 uint16_t sensorCalibrationMaxs[8] = {2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500};
 
-const float Kp = 0.8;
+const float Kp = 0.4;
 const float Ki = 0.0;
-const float Kd = 10.0;
+const float Kd = 7.0;
 
 enum MovementState { LINE_FOLLOWING_FORWARD, TURNING_AROUND, LINE_FOLLOWING_BACK, FINISHED };
 
@@ -74,27 +74,40 @@ void setup()
 void move() {
   float straightSpeed = state.currentForwardSpeed;
   float turnSpeed = state.currentTurnSpeed;
-
+//  Serial.print("straight speed before:\t ");
+//  Serial.println(straightSpeed);
   straightSpeed = max(-1.0, min(1.0, straightSpeed));
   turnSpeed = max(-1.0, min(1.0, turnSpeed));
+//  Serial.print("straight speed after:\t ");
+//  Serial.println(straightSpeed);
 
-  float rightWheelSpeed = straightSpeed - 0.5 * turnSpeed;
-  float leftWheelSpeed = straightSpeed + 0.5 * turnSpeed;
+  float rightWheelSpeed = straightSpeed;// - (0.5 * turnSpeed);
+  float leftWheelSpeed = straightSpeed;// + (0.5 * turnSpeed);
+//  Serial.print("turn calc: ");
+//  Serial.print(0.5f * (float)turnSpeed);
+//  Serial.print(" right wheel before: ");
+//  Serial.print(rightWheelSpeed);
+  if(fabs(turnSpeed) > 0.001) {
+    rightWheelSpeed -= (0.5f * turnSpeed);
+    leftWheelSpeed += (0.5f * turnSpeed);
+  }
 
+//  Serial.print(" right wheel after: ");
+//  Serial.println(rightWheelSpeed);
   if (leftWheelSpeed < 0.0) {
     digitalWrite(left_dir_pin, HIGH);
   } else {
     digitalWrite(left_dir_pin, LOW);
   }
-  leftWheelSpeed = abs(leftWheelSpeed);
+  leftWheelSpeed = fabs(leftWheelSpeed);
 
   if (rightWheelSpeed < 0.0) {
     digitalWrite(right_dir_pin, HIGH);
   } else {
     digitalWrite(right_dir_pin, LOW);
   }
-  rightWheelSpeed = abs(rightWheelSpeed);
-
+  rightWheelSpeed = fabs(rightWheelSpeed);
+//  Serial.println((int)(leftWheelSpeed * 255.0));
   analogWrite(left_pwm_pin, (int)(leftWheelSpeed * 255.0));
   analogWrite(right_pwm_pin, (int)(rightWheelSpeed * 255.0));
 
@@ -131,7 +144,7 @@ void calcTurnSpeedPD() {
 }
 
 void updateSensors() {
-  float fusion[8] = {1.0, 0.75, 0.5, 0.25, -0.25, -0.5, -0.75, -1.0};
+  float fusion[8] = {0.25, 0.75, 0.5, 0.25, -0.25, -0.5, -0.75, -0.25};
   float weightedsum = 0.0;
   int sum = 0;
   float totalsum = 0.0;
@@ -170,12 +183,9 @@ void normalize() {
 bool onFinish() {
   int avg = 0;
   for (int i = 0; i < NUM_PREVIOUS_SUMS; i++) {
-     avg += state.previousSums[i];
+     if(state.previousSums[i] < 3500) return false;
   }
-  avg /= NUM_PREVIOUS_SUMS;
-//  Serial.print(avg);
-//  Serial.print('\n');
-  return avg > 5800;
+  return true;
 }
 
 void stopMove() {
@@ -221,9 +231,11 @@ void loop() {
       }
 
       calcTurnSpeedPD();
-      rampSpeedTo(state.currentForwardSpeed, 0.1, RAMP_SPEED);
+      rampSpeedTo(state.currentForwardSpeed, 0.06, RAMP_SPEED);
+
       break;
     case TURNING_AROUND:
+//      Serial.print("turning\n");
       if(getEncoderCount_left() > 350) {
         state.movementState = LINE_FOLLOWING_BACK;
         stopMove();
@@ -232,6 +244,10 @@ void loop() {
       rampSpeedTo(state.currentTurnSpeed, 0.2, RAMP_SPEED);
       break;
     case LINE_FOLLOWING_BACK:
+        //  Serial.print(state.currentError);
+      //Serial.print('\n');
+//          Serial.print("going back\n");
+
       if (onFinish()) {
 //        Serial.print("yes\n");
         state.movementState = FINISHED;
@@ -239,9 +255,12 @@ void loop() {
         return;
       }
       calcTurnSpeedPD();
-      rampSpeedTo(state.currentForwardSpeed, 0.1, RAMP_SPEED);
+      rampSpeedTo(state.currentForwardSpeed, 0.06, RAMP_SPEED);
+      //Serial.println(state.currentForwardSpeed);
       break;
     case FINISHED:
+//          Serial.print("finished\n");
+
       stopMove();
       return;
   }
